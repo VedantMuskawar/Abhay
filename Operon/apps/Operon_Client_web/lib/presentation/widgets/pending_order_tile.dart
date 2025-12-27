@@ -1,4 +1,6 @@
+import 'package:dash_web/data/repositories/clients_repository.dart';
 import 'package:dash_web/data/repositories/pending_orders_repository.dart';
+import 'package:dash_web/presentation/widgets/schedule_trip_modal.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -171,9 +173,63 @@ class _PendingOrderTileState extends State<PendingOrderTile> {
   }
 
   Future<void> _openScheduleModal() async {
-    // TODO: Implement schedule trip modal for web
-    if (widget.onTripsUpdated != null) {
-      widget.onTripsUpdated!();
+    final clientId = widget.order['clientId'] as String?;
+    final clientName = widget.order['clientName'] as String? ?? 'N/A';
+    
+    if (clientId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Client information not available')),
+      );
+      return;
+    }
+
+    try {
+      final clientsRepo = context.read<ClientsRepository>();
+      final client = await clientsRepo.findClientByPhone(
+        widget.order['clientPhone'] as String? ?? '',
+      );
+      
+      if (client == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Client not found')),
+        );
+        return;
+      }
+
+      final phones = client.phones;
+      List<Map<String, dynamic>> clientPhones = [];
+      if (phones.isNotEmpty) {
+        clientPhones = phones;
+      } else if (client.primaryPhone != null) {
+        clientPhones.add({
+          'e164': client.primaryPhone,
+          'number': client.primaryPhone,
+        });
+      }
+
+      if (!mounted) return;
+
+      await showDialog(
+        context: context,
+        barrierColor: Colors.black.withValues(alpha: 0.7),
+        builder: (context) => ScheduleTripModal(
+          order: widget.order,
+          clientId: clientId,
+          clientName: clientName,
+          clientPhones: clientPhones,
+          onScheduled: () {
+            if (widget.onTripsUpdated != null) {
+              widget.onTripsUpdated!();
+            }
+          },
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to open schedule modal: $e')),
+        );
+      }
     }
   }
 
@@ -181,21 +237,28 @@ class _PendingOrderTileState extends State<PendingOrderTile> {
   Widget build(BuildContext context) {
     final items = widget.order['items'] as List<dynamic>? ?? [];
     final firstItem = items.isNotEmpty ? items.first as Map<String, dynamic> : null;
+    final autoSchedule = widget.order['autoSchedule'] as Map<String, dynamic>?;
     
-    // Calculate trips
+    // Calculate total estimated trips
+    // Priority: 1. autoSchedule.totalTripsRequired, 2. Sum of item estimatedTrips, 3. Fallback
     int totalEstimatedTrips = 0;
-    for (final item in items) {
-      final itemMap = item as Map<String, dynamic>;
-      totalEstimatedTrips += (itemMap['estimatedTrips'] as int? ?? 0);
-    }
-    if (totalEstimatedTrips == 0 && firstItem != null) {
-      totalEstimatedTrips = firstItem['estimatedTrips'] as int? ?? 
-          (widget.order['tripIds'] as List<dynamic>?)?.length ?? 0;
+    if (autoSchedule?['totalTripsRequired'] != null) {
+      totalEstimatedTrips = (autoSchedule!['totalTripsRequired'] as num).toInt();
+    } else {
+      // Fallback: Sum estimated trips from all items
+      for (final item in items) {
+        final itemMap = item as Map<String, dynamic>;
+        totalEstimatedTrips += (itemMap['estimatedTrips'] as int? ?? 0);
+      }
+      if (totalEstimatedTrips == 0 && firstItem != null) {
+        totalEstimatedTrips = firstItem['estimatedTrips'] as int? ?? 
+            (widget.order['tripIds'] as List<dynamic>?)?.length ?? 0;
+      }
     }
     
     final totalScheduledTrips = widget.order['totalScheduledTrips'] as int? ?? 0;
     final estimatedTrips = totalEstimatedTrips - totalScheduledTrips;
-    final totalTrips = totalScheduledTrips + (estimatedTrips > 0 ? estimatedTrips : 0);
+    final totalTrips = totalEstimatedTrips; // Use totalEstimatedTrips directly as the total
     
     final productName = firstItem?['productName'] as String? ?? 'N/A';
     final fixedQuantityPerTrip = firstItem?['fixedQuantityPerTrip'] as int? ?? 0;
@@ -211,7 +274,6 @@ class _PendingOrderTileState extends State<PendingOrderTile> {
     final updatedAt = widget.order['updatedAt'];
     final priorityColor = _getPriorityBorderColor();
     final priority = widget.order['priority'] as String? ?? 'normal';
-    final autoSchedule = widget.order['autoSchedule'] as Map<String, dynamic>?;
     final estimatedDeliveryDate = autoSchedule?['estimatedDeliveryDate'];
     
     // Pricing information
@@ -740,6 +802,7 @@ class _PendingOrderTileState extends State<PendingOrderTile> {
             ),
           ),
         ),
+      ),
       ),
     );
   }

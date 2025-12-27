@@ -126,8 +126,100 @@ class ClientsDataSource {
     });
   }
 
+  Future<void> updatePrimaryPhone({
+    required String clientId,
+    required String newPhone,
+  }) async {
+    final normalized = _normalizePhone(newPhone);
+    final docRef = _clientsRef.doc(clientId);
+
+    await _firestore.runTransaction((transaction) async {
+      final snapshot = await transaction.get(docRef);
+      if (!snapshot.exists) {
+        throw Exception('Client not found');
+      }
+      final data = snapshot.data()!;
+      final phones = List<Map<String, dynamic>>.from(data['phones'] ?? []);
+      final phoneIndex = <String>{
+        ...List<String>.from(data['phoneIndex'] ?? []),
+      };
+
+      final alreadyPresent = phones.any((entry) => entry['e164'] == normalized);
+      if (!alreadyPresent) {
+        phones.insert(0, {
+          'e164': normalized,
+          'label': 'main',
+        });
+      } else {
+        for (final entry in phones) {
+          if (entry['e164'] == normalized) {
+            entry['label'] = entry['label'] ?? 'main';
+          }
+        }
+      }
+      phoneIndex.add(normalized);
+
+      transaction.update(docRef, {
+        'primaryPhone': normalized,
+        'phones': phones,
+        'phoneIndex': phoneIndex.toList(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    });
+  }
+
   Future<void> deleteClient(String clientId) {
     return _clientsRef.doc(clientId).delete();
+  }
+
+  Future<Client?> findClientByPhone(String phone) async {
+    final normalized = _normalizePhone(phone);
+    final snapshot = await _clientsRef
+        .where('phoneIndex', arrayContains: normalized)
+        .limit(1)
+        .get();
+    if (snapshot.docs.isEmpty) return null;
+    return Client.fromJson(snapshot.docs.first.data(), snapshot.docs.first.id);
+  }
+
+  Future<void> addContactToExistingClient({
+    required String clientId,
+    required String contactName,
+    required String phoneNumber,
+  }) async {
+    final normalized = _normalizePhone(phoneNumber);
+    final docRef = _clientsRef.doc(clientId);
+
+    await _firestore.runTransaction((transaction) async {
+      final snapshot = await transaction.get(docRef);
+      if (!snapshot.exists) {
+        throw Exception('Client not found');
+      }
+      final data = snapshot.data()!;
+      final phones = List<Map<String, dynamic>>.from(data['phones'] ?? []);
+      final phoneIndex = List<String>.from(data['phoneIndex'] ?? []);
+      if (phoneIndex.contains(normalized)) {
+        return; // Phone already exists
+      }
+      phones.add({
+        'e164': normalized,
+        'label': 'contact',
+      });
+      phoneIndex.add(normalized);
+
+      final contacts = List<Map<String, dynamic>>.from(data['contacts'] ?? []);
+      contacts.add({
+        'name': contactName.trim(),
+        'e164': normalized,
+      });
+
+      transaction.update(docRef, {
+        'phones': phones,
+        'phoneIndex': phoneIndex,
+        'contacts': contacts,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    });
   }
 
   String _normalizePhone(String phone) {

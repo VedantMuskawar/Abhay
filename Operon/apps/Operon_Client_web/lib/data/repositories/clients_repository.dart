@@ -51,7 +51,33 @@ class ClientsRepository {
     return _dataSource.updateClient(client);
   }
 
+  Future<void> updatePrimaryPhone({
+    required String clientId,
+    required String newPhone,
+  }) async {
+    return _dataSource.updatePrimaryPhone(
+      clientId: clientId,
+      newPhone: newPhone,
+    );
+  }
+
   Future<void> deleteClient(String clientId) {
     return _dataSource.deleteClient(clientId);
+  }
+
+  Future<Client?> findClientByPhone(String phone) {
+    return _dataSource.findClientByPhone(phone);
+  }
+
+  Future<void> addContactToExistingClient({
+    required String clientId,
+    required String contactName,
+    required String phoneNumber,
+  }) {
+    return _dataSource.addContactToExistingClient(
+      clientId: clientId,
+      contactName: contactName,
+      phoneNumber: phoneNumber,
+    );
   }
 }

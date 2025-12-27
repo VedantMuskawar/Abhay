@@ -12,6 +12,7 @@ dependencies:
   firebase_core: ^2.17.0
   firebase_auth: ^4.19.5
   cloud_firestore: ^4.15.5
+  cloud_functions: ^4.6.5
   firebase_storage: ^11.7.7
   shared_preferences: ^2.3.2
   core_bloc:
@@ -24,6 +25,8 @@ dependencies:
     path: ../../packages/core_ui
   core_utils:
     path: ../../packages/core_utils
+  core_datasources:
+    path: ../../packages/core_datasources
 
 dev_dependencies:
   flutter_test:

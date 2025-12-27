@@ -8,6 +8,7 @@ import 'package:dash_web/domain/entities/wage_type.dart';
 import 'package:dash_web/presentation/blocs/employees/employees_cubit.dart';
 import 'package:dash_web/presentation/blocs/job_roles/job_roles_cubit.dart';
 import 'package:dash_web/presentation/blocs/org_context/org_context_cubit.dart';
+import 'package:dash_web/presentation/widgets/employee_detail_panel.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -37,6 +38,8 @@ class _EmployeesPageContentState extends State<EmployeesPageContent> {
   _SortOption _sortOption = _SortOption.nameAsc;
   String? _selectedRoleFilter;
   bool _isListView = false;
+  OrganizationEmployee? _selectedEmployee;
+  bool _isPanelOpen = false;
 
   List<OrganizationEmployee> _applyFiltersAndSort(
     List<OrganizationEmployee> employees,
@@ -113,9 +116,12 @@ class _EmployeesPageContentState extends State<EmployeesPageContent> {
         
         final filtered = _applyFiltersAndSort(employees, uniqueRoles);
 
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        return Stack(
           children: [
+            // Main content
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
             // Statistics Dashboard
             _EmployeesStatsHeader(employees: employees),
             const SizedBox(height: 32),
@@ -381,6 +387,7 @@ class _EmployeesPageContentState extends State<EmployeesPageContent> {
             else if (_isListView)
               _EmployeeListView(
                 employees: filtered,
+                onTap: (emp) => _openEmployeeDetail(emp),
                 onEdit: (emp) => _showEmployeeDialog(context, emp),
                 onDelete: (emp) => _showDeleteConfirmation(context, emp),
               )
@@ -401,12 +408,13 @@ class _EmployeesPageContentState extends State<EmployeesPageContent> {
                       crossAxisCount: crossAxisCount,
                       crossAxisSpacing: 20,
                       mainAxisSpacing: 20,
-                      childAspectRatio: 1.15,
+                      childAspectRatio: 1.25,
                     ),
                     itemCount: filtered.length,
                     itemBuilder: (context, index) {
                       return _EmployeeCard(
                         employee: filtered[index],
+                        onTap: () => _openEmployeeDetail(filtered[index]),
                         onEdit: () => _showEmployeeDialog(context, filtered[index]),
                         onDelete: () => _showDeleteConfirmation(context, filtered[index]),
                       );
@@ -414,21 +422,50 @@ class _EmployeesPageContentState extends State<EmployeesPageContent> {
                   );
                 },
               ),
+              ],
+            ),
+            
+            // Employee Detail Panel (positioned absolutely)
+            if (_isPanelOpen && _selectedEmployee != null)
+              EmployeeDetailPanel(
+                employee: _selectedEmployee!,
+                onClose: () {
+                  setState(() {
+                    _isPanelOpen = false;
+                    _selectedEmployee = null;
+                  });
+                },
+                onEmployeeChanged: (employee) {
+                  setState(() {
+                    _selectedEmployee = employee;
+                  });
+                },
+                onEdit: () => _showEmployeeDialog(context, _selectedEmployee),
+              ),
           ],
         );
       },
     );
+  }
+
+  void _openEmployeeDetail(OrganizationEmployee employee) {
+    setState(() {
+      _selectedEmployee = employee;
+      _isPanelOpen = true;
+    });
   }
 }
 
 class _EmployeeCard extends StatefulWidget {
   const _EmployeeCard({
     required this.employee,
+    this.onTap,
     this.onEdit,
     this.onDelete,
   });
 
   final OrganizationEmployee employee;
+  final VoidCallback? onTap;
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
 
@@ -511,12 +548,14 @@ class _EmployeeCardState extends State<_EmployeeCard>
         setState(() => _isHovered = false);
         _controller.reverse();
       },
-      child: AnimatedBuilder(
-        animation: _controller,
-        builder: (context, child) {
-          return Transform.scale(
-            scale: 1.0 + (_controller.value * 0.02),
-            child: Container(
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedBuilder(
+          animation: _controller,
+          builder: (context, child) {
+            return Transform.scale(
+              scale: 1.0 + (_controller.value * 0.02),
+              child: Container(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   begin: Alignment.topLeft,
@@ -552,9 +591,13 @@ class _EmployeeCardState extends State<_EmployeeCard>
                 clipBehavior: Clip.none,
                 children: [
                   Padding(
-                    padding: const EdgeInsets.all(20),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 20,
+                    ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         // Header with Avatar
                         Row(
@@ -634,7 +677,6 @@ class _EmployeeCardState extends State<_EmployeeCard>
                             ),
                           ],
                         ),
-                        const SizedBox(height: 20),
                         
                         // Balance Section
                         Container(
@@ -743,7 +785,6 @@ class _EmployeeCardState extends State<_EmployeeCard>
                             ],
                           ),
                         ),
-                        const SizedBox(height: 12),
                         
                         // Salary Info
                         if (widget.employee.wage.baseAmount != null || widget.employee.wage.rate != null)
@@ -787,7 +828,22 @@ class _EmployeeCardState extends State<_EmployeeCard>
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            if (widget.onEdit != null)
+                            if (widget.onTap != null)
+                              IconButton(
+                                icon: const Icon(Icons.visibility, size: 18),
+                                color: Colors.white70,
+                                onPressed: widget.onTap,
+                                tooltip: 'View Details',
+                                padding: const EdgeInsets.all(8),
+                                constraints: const BoxConstraints(),
+                              ),
+                            if (widget.onEdit != null) ...[
+                              if (widget.onTap != null)
+                                Container(
+                                  width: 1,
+                                  height: 24,
+                                  color: Colors.white.withValues(alpha: 0.1),
+                                ),
                               IconButton(
                                 icon: const Icon(Icons.edit, size: 18),
                                 color: Colors.white70,
@@ -796,6 +852,7 @@ class _EmployeeCardState extends State<_EmployeeCard>
                                 padding: const EdgeInsets.all(8),
                                 constraints: const BoxConstraints(),
                               ),
+                            ],
                             if (widget.onDelete != null) ...[
                               Container(
                                 width: 1,
@@ -820,6 +877,7 @@ class _EmployeeCardState extends State<_EmployeeCard>
             ),
           );
         },
+      ),
       ),
     );
   }
@@ -1932,11 +1990,13 @@ class _ViewToggleButton extends StatelessWidget {
 class _EmployeeListView extends StatelessWidget {
   const _EmployeeListView({
     required this.employees,
+    this.onTap,
     required this.onEdit,
     required this.onDelete,
   });
 
   final List<OrganizationEmployee> employees;
+  final ValueChanged<OrganizationEmployee>? onTap;
   final ValueChanged<OrganizationEmployee> onEdit;
   final ValueChanged<OrganizationEmployee> onDelete;
 
@@ -2162,6 +2222,13 @@ class _EmployeeListView extends StatelessWidget {
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  if (onTap != null)
+                    IconButton(
+                      icon: const Icon(Icons.visibility, size: 20),
+                      color: Colors.white70,
+                      onPressed: () => onTap!(employee),
+                      tooltip: 'View Details',
+                    ),
                   IconButton(
                     icon: const Icon(Icons.edit, size: 20),
                     color: Colors.white70,

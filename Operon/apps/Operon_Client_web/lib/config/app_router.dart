@@ -1,7 +1,7 @@
 import 'package:dash_web/data/repositories/app_access_roles_repository.dart';
 import 'package:dash_web/data/repositories/job_roles_repository.dart';
 import 'package:dash_web/data/repositories/products_repository.dart';
-import 'package:dash_web/data/repositories/roles_repository.dart';
+import 'package:core_datasources/core_datasources.dart';
 import 'package:dash_web/presentation/blocs/access_control/access_control_cubit.dart';
 import 'package:dash_web/presentation/blocs/auth/auth_bloc.dart';
 import 'package:dash_web/presentation/blocs/org_context/org_context_cubit.dart';
@@ -29,6 +29,7 @@ import 'package:dash_web/presentation/blocs/clients/clients_cubit.dart';
 import 'package:dash_web/presentation/views/client_detail_page.dart';
 import 'package:dash_web/domain/entities/client.dart';
 import 'package:dash_web/presentation/widgets/section_workspace_layout.dart';
+import 'package:dash_web/presentation/views/delivery_memos_view.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -414,7 +415,39 @@ GoRouter buildRouter() {
           final client = state.extra as Client?;
           return _buildTransitionPage(
             key: state.pageKey,
+            routePath: state.uri.path,
             child: CreateOrderPage(client: client),
+          );
+        },
+      ),
+      GoRoute(
+        path: '/delivery-memos',
+        name: 'delivery-memos',
+        redirect: (context, state) {
+          final authState = context.read<AuthBloc>().state;
+          final orgState = context.read<OrganizationContextCubit>().state;
+          if (authState.userProfile == null) {
+            return '/login';
+          }
+          if (!orgState.hasSelection) {
+            return '/org-selection';
+          }
+          return null;
+        },
+        pageBuilder: (context, state) {
+          final orgState = context.read<OrganizationContextCubit>().state;
+          final organization = orgState.organization;
+          if (organization == null) {
+            return _buildTransitionPage(
+              key: state.pageKey,
+              routePath: state.uri.path,
+              child: const OrganizationSelectionPage(),
+            );
+          }
+          return _buildTransitionPage(
+            key: state.pageKey,
+            routePath: state.uri.path,
+            child: const DeliveryMemosView(),
           );
         },
       ),

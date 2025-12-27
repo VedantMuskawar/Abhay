@@ -1,30 +1,31 @@
 import 'package:core_services/core_services.dart';
 import 'package:dash_web/config/app_router.dart';
 import 'package:dash_web/config/app_theme.dart';
+import 'package:core_datasources/core_datasources.dart';
 import 'package:dash_web/data/datasources/employees_data_source.dart';
 import 'package:dash_web/data/datasources/payment_accounts_data_source.dart';
-import 'package:dash_web/data/datasources/products_data_source.dart';
 import 'package:dash_web/data/datasources/app_access_roles_data_source.dart';
 import 'package:dash_web/data/datasources/job_roles_data_source.dart';
-import 'package:dash_web/data/datasources/roles_data_source.dart';
 import 'package:dash_web/data/datasources/users_data_source.dart';
-import 'package:dash_web/data/datasources/vehicles_data_source.dart';
-import 'package:dash_web/data/datasources/delivery_zones_data_source.dart';
 import 'package:dash_web/data/datasources/clients_data_source.dart';
 import 'package:dash_web/data/datasources/pending_orders_data_source.dart';
+import 'package:dash_web/data/datasources/scheduled_trips_data_source.dart';
 import 'package:dash_web/data/repositories/auth_repository.dart';
 import 'package:dash_web/data/repositories/employees_repository.dart';
 import 'package:dash_web/data/repositories/payment_accounts_repository.dart';
 import 'package:dash_web/data/repositories/products_repository.dart';
 import 'package:dash_web/data/repositories/app_access_roles_repository.dart';
 import 'package:dash_web/data/repositories/job_roles_repository.dart';
-import 'package:dash_web/data/repositories/roles_repository.dart';
 import 'package:dash_web/data/repositories/user_organization_repository.dart';
 import 'package:dash_web/data/repositories/users_repository.dart';
 import 'package:dash_web/data/repositories/vehicles_repository.dart';
 import 'package:dash_web/data/repositories/delivery_zones_repository.dart';
 import 'package:dash_web/data/repositories/clients_repository.dart';
 import 'package:dash_web/data/repositories/pending_orders_repository.dart';
+import 'package:dash_web/data/repositories/scheduled_trips_repository.dart';
+import 'package:dash_web/data/repositories/delivery_memo_repository.dart';
+import 'package:core_datasources/core_datasources.dart' hide DeliveryMemoRepository;
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:dash_web/data/services/qr_code_service.dart';
 import 'package:dash_web/presentation/blocs/app_initialization/app_initialization_cubit.dart';
 import 'package:dash_web/presentation/blocs/auth/auth_bloc.dart';
@@ -96,9 +97,26 @@ class DashWebApp extends StatelessWidget {
             dataSource: ClientsDataSource(),
           ),
         ),
+        RepositoryProvider<ClientLedgerRepository>(
+          create: (_) => ClientLedgerRepository(
+            dataSource: ClientLedgerDataSource(),
+          ),
+        ),
         RepositoryProvider<PendingOrdersRepository>(
           create: (_) => PendingOrdersRepository(
             dataSource: PendingOrdersDataSource(),
+          ),
+        ),
+        RepositoryProvider<ScheduledTripsRepository>(
+          create: (_) => ScheduledTripsRepository(
+            dataSource: ScheduledTripsDataSource(),
+          ),
+        ),
+        RepositoryProvider<DeliveryMemoRepository>(
+          create: (_) => DeliveryMemoRepository(
+            dataSource: DeliveryMemoDataSource(
+              functions: FirebaseFunctions.instanceFor(region: 'us-central1'),
+            ),
           ),
         ),
         RepositoryProvider<QrCodeService>(

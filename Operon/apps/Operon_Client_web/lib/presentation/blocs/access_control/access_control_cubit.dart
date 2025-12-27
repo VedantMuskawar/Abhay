@@ -1,7 +1,7 @@
 import 'package:core_bloc/core_bloc.dart';
 import 'package:dash_web/data/repositories/app_access_roles_repository.dart';
 import 'package:dash_web/domain/entities/app_access_role.dart';
-import 'package:dash_web/domain/entities/organization_role.dart' show PageCrudPermissions, RolePermissions;
+import 'package:core_models/core_models.dart' show PageCrudPermissions, RolePermissions;
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 enum ViewMode { byPage, byRole }

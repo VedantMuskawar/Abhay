@@ -160,35 +160,24 @@ class _PendingOrdersViewState extends State<PendingOrdersView> {
                 ],
                 // Order Tiles - Grid Layout
                 if (_getFilteredOrders().isNotEmpty) ...[
-                  LayoutBuilder(
-                    builder: (context, constraints) {
-                      final crossAxisCount = constraints.maxWidth > 1800
-                          ? 4
-                          : constraints.maxWidth > 1350
-                              ? 3
-                              : constraints.maxWidth > 900
-                                  ? 2
-                                  : 1;
-                      return GridView.builder(
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: crossAxisCount,
-                          childAspectRatio: 0.85, // Taller tiles to accommodate more content
-                          crossAxisSpacing: 20,
-                          mainAxisSpacing: 20,
-                        ),
-                        itemCount: _getFilteredOrders().length,
-                        itemBuilder: (context, index) {
-                          return PendingOrderTile(
-                            order: _getFilteredOrders()[index],
-                            onTripsUpdated: () => _subscribeToOrders(),
-                            onDeleted: () => _subscribeToOrders(),
-                            onTap: () {
-                              // TODO: Navigate to order detail page
-                              // context.push('/pending-orders/${order['id']}');
-                            },
-                          );
+                  GridView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 5,
+                      childAspectRatio: 0.85, // Taller tiles to accommodate more content
+                      crossAxisSpacing: 20,
+                      mainAxisSpacing: 20,
+                    ),
+                    itemCount: _getFilteredOrders().length,
+                    itemBuilder: (context, index) {
+                      return PendingOrderTile(
+                        order: _getFilteredOrders()[index],
+                        onTripsUpdated: () => _subscribeToOrders(),
+                        onDeleted: () => _subscribeToOrders(),
+                        onTap: () {
+                          // TODO: Navigate to order detail page
+                          // context.push('/pending-orders/${order['id']}');
                         },
                       );
                     },

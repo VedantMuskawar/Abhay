@@ -1,4 +1,4 @@
-import 'package:dash_web/domain/entities/organization_role.dart';
+import 'package:core_models/core_models.dart';
 
 /// App Access Role - Controls user permissions in the application
 /// 

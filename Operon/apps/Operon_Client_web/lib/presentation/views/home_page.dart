@@ -1,5 +1,6 @@
 import 'package:dash_web/presentation/blocs/org_context/org_context_cubit.dart';
 import 'package:dash_web/presentation/views/pending_orders_view.dart';
+import 'package:dash_web/presentation/views/schedule_orders_view.dart';
 import 'package:dash_web/presentation/widgets/section_workspace_layout.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
@@ -44,7 +45,7 @@ class _HomePageState extends State<HomePage> {
   static final _sections = [
     const _HomeOverviewView(),
     const PendingOrdersView(),
-    const _ScheduleOrdersView(),
+    const ScheduleOrdersView(),
     const _OrdersMapView(),
     const _AnalyticsPlaceholder(),
   ];
@@ -156,6 +157,18 @@ class _HomeOverviewView extends StatelessWidget {
         description: 'Client management',
         color: const Color(0xFFFF9800),
         onTap: () => context.go('/clients'),
+      ));
+    }
+    // Delivery Memos - accessible to users who can view orders
+    if (isAdmin ||
+        appAccessRole?.canAccessSection('pendingOrders') == true ||
+        appAccessRole?.canAccessSection('scheduleOrders') == true) {
+      tiles.add(_OverviewTile(
+        icon: Icons.description_outlined,
+        label: 'Delivery Memos',
+        description: 'Track delivery memos',
+        color: const Color(0xFF2196F3),
+        onTap: () => context.go('/delivery-memos'),
       ));
     }
 
@@ -384,55 +397,6 @@ class _OverviewTileState extends State<_OverviewTile>
 }
 
 
-class _ScheduleOrdersView extends StatelessWidget {
-  const _ScheduleOrdersView();
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Text(
-              'Schedule Orders',
-              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                  ),
-            ),
-            const Spacer(),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: const Color(0xFF6F4BFF).withValues(alpha: 0.2),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: const Color(0xFF6F4BFF).withValues(alpha: 0.3),
-                ),
-              ),
-              child: Text(
-                'Coming Soon',
-                style: TextStyle(
-                  color: const Color(0xFF6F4BFF),
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 32),
-        _EmptyStateCard(
-          icon: Icons.schedule_outlined,
-          title: 'Schedule Orders',
-          description: 'Plan and schedule order deliveries',
-          color: const Color(0xFF6F4BFF),
-        ),
-      ],
-    );
-  }
-}
 
 class _OrdersMapView extends StatelessWidget {
   const _OrdersMapView();

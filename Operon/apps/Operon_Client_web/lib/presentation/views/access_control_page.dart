@@ -2,7 +2,7 @@ import 'package:core_bloc/core_bloc.dart';
 import 'package:core_ui/core_ui.dart';
 import 'package:dash_web/data/repositories/app_access_roles_repository.dart';
 import 'package:dash_web/domain/entities/app_access_role.dart';
-import 'package:dash_web/domain/entities/organization_role.dart' show PageCrudPermissions, RolePermissions;
+import 'package:core_models/core_models.dart' show PageCrudPermissions, RolePermissions;
 import 'package:dash_web/presentation/blocs/access_control/access_control_cubit.dart';
 import 'package:dash_web/presentation/blocs/app_access_roles/app_access_roles_cubit.dart';
 import 'package:dash_web/presentation/blocs/org_context/org_context_cubit.dart';
@@ -31,6 +31,7 @@ const _pages = [
   _ItemInfo('vehicles', 'Vehicles', Icons.directions_car_outlined, Color(0xFFF38181)),
   _ItemInfo('paymentAccounts', 'Payment Accounts', Icons.account_balance_wallet_outlined, Color(0xFF6F4BFF)),
   _ItemInfo('roles', 'Roles', Icons.badge_outlined, Color(0xFF9C27B0)),
+  _ItemInfo('deliveryMemos', 'Delivery Memos', Icons.description_outlined, Color(0xFF2196F3)),
 ];
 
 class _ItemInfo {

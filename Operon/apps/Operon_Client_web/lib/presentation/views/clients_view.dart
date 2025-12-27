@@ -1,9 +1,9 @@
 import 'package:core_bloc/core_bloc.dart';
 import 'package:dash_web/domain/entities/client.dart';
 import 'package:dash_web/presentation/blocs/clients/clients_cubit.dart';
+import 'package:dash_web/presentation/widgets/client_detail_panel.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:go_router/go_router.dart';
 
 class ClientsPageContent extends StatefulWidget {
   const ClientsPageContent({super.key});
@@ -32,6 +32,8 @@ class _ClientsPageContentState extends State<ClientsPageContent> {
   _ClientSortOption _sortOption = _ClientSortOption.nameAsc;
   _ClientFilterType _filterType = _ClientFilterType.all;
   bool _isListView = false;
+  Client? _selectedClient;
+  bool _isPanelOpen = false;
 
   @override
   void initState() {
@@ -138,9 +140,12 @@ class _ClientsPageContentState extends State<ClientsPageContent> {
 
         final filtered = _applyFiltersAndSort(allClients);
 
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        return Stack(
           children: [
+            // Main content
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
             // Statistics Dashboard
             _ClientsStatsHeader(clients: state.clients),
             const SizedBox(height: 32),
@@ -436,7 +441,7 @@ class _ClientsPageContentState extends State<ClientsPageContent> {
             else if (_isListView)
               _ClientListView(
                 clients: filtered,
-                onTap: (client) => context.push('/clients/detail', extra: client),
+                onTap: (client) => _openClientDetail(client),
                 onEdit: (client) => _showClientDialog(context, client),
                 onDelete: (client) => _showDeleteConfirmation(context, client),
               )
@@ -457,13 +462,13 @@ class _ClientsPageContentState extends State<ClientsPageContent> {
                       crossAxisCount: crossAxisCount,
                       crossAxisSpacing: 20,
                       mainAxisSpacing: 20,
-                      childAspectRatio: 1.2,
+                      childAspectRatio: 1.25,
                     ),
                     itemCount: filtered.length,
                     itemBuilder: (context, index) {
                       return _ClientCard(
                         client: filtered[index],
-                        onTap: () => context.push('/clients/detail', extra: filtered[index]),
+                        onTap: () => _openClientDetail(filtered[index]),
                         onEdit: () => _showClientDialog(context, filtered[index]),
                         onDelete: () => _showDeleteConfirmation(context, filtered[index]),
                       );
@@ -471,10 +476,36 @@ class _ClientsPageContentState extends State<ClientsPageContent> {
                   );
                 },
               ),
+              ],
+            ),
+            
+            // Client Detail Panel (positioned absolutely)
+            if (_isPanelOpen && _selectedClient != null)
+              ClientDetailPanel(
+                client: _selectedClient!,
+                onClose: () {
+                  setState(() {
+                    _isPanelOpen = false;
+                    _selectedClient = null;
+                  });
+                },
+                onClientChanged: (client) {
+                  setState(() {
+                    _selectedClient = client;
+                  });
+                },
+              ),
           ],
         );
       },
     );
+  }
+
+  void _openClientDetail(Client client) {
+    setState(() {
+      _selectedClient = client;
+      _isPanelOpen = true;
+    });
   }
 }
 
@@ -594,9 +625,13 @@ class _ClientCardState extends State<_ClientCard>
                   clipBehavior: Clip.none,
                   children: [
                     Padding(
-                      padding: const EdgeInsets.all(20),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 20,
+                      ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           // Header with Avatar
                           Row(
@@ -688,7 +723,6 @@ class _ClientCardState extends State<_ClientCard>
                               ),
                             ],
                           ),
-                          const SizedBox(height: 20),
                           
                           // Phone Info
                           if (widget.client.primaryPhone != null)
@@ -722,83 +756,87 @@ class _ClientCardState extends State<_ClientCard>
                                 ],
                               ),
                             ),
-                          if (widget.client.primaryPhone != null)
-                            const SizedBox(height: 12),
                           
-                          // Tags
-                          if (widget.client.tags.isNotEmpty) ...[
-                            Wrap(
-                              spacing: 6,
-                              runSpacing: 6,
-                              children: widget.client.tags.take(3).map((tag) {
-                                return Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                    vertical: 5,
+                          // Tags and Stats
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // Tags
+                              if (widget.client.tags.isNotEmpty) ...[
+                                Wrap(
+                                  spacing: 6,
+                                  runSpacing: 6,
+                                  children: widget.client.tags.take(3).map((tag) {
+                                    return Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 10,
+                                        vertical: 5,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white.withValues(alpha: 0.08),
+                                        borderRadius: BorderRadius.circular(8),
+                                        border: Border.all(
+                                          color: Colors.white.withValues(alpha: 0.1),
+                                        ),
+                                      ),
+                                      child: Text(
+                                        tag,
+                                        style: TextStyle(
+                                          color: Colors.white.withValues(alpha: 0.8),
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    );
+                                  }).toList(),
+                                ),
+                                if (widget.client.tags.length > 3)
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 4),
+                                    child: Text(
+                                      '+${widget.client.tags.length - 3} more',
+                                      style: TextStyle(
+                                        color: Colors.white.withValues(alpha: 0.5),
+                                        fontSize: 11,
+                                      ),
+                                    ),
                                   ),
+                              ],
+                              
+                              // Stats
+                              if (widget.client.stats != null && orderCount > 0) ...[
+                                if (widget.client.tags.isNotEmpty) const SizedBox(height: 12),
+                                Container(
+                                  padding: const EdgeInsets.all(12),
                                   decoration: BoxDecoration(
-                                    color: Colors.white.withValues(alpha: 0.08),
-                                    borderRadius: BorderRadius.circular(8),
+                                    color: const Color(0xFF5AD8A4).withValues(alpha: 0.1),
+                                    borderRadius: BorderRadius.circular(10),
                                     border: Border.all(
-                                      color: Colors.white.withValues(alpha: 0.1),
+                                      color: const Color(0xFF5AD8A4).withValues(alpha: 0.2),
                                     ),
                                   ),
-                                  child: Text(
-                                    tag,
-                                    style: TextStyle(
-                                      color: Colors.white.withValues(alpha: 0.8),
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                );
-                              }).toList(),
-                            ),
-                            if (widget.client.tags.length > 3)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 4),
-                                child: Text(
-                                  '+${widget.client.tags.length - 3} more',
-                                  style: TextStyle(
-                                    color: Colors.white.withValues(alpha: 0.5),
-                                    fontSize: 11,
+                                  child: Row(
+                                    children: [
+                                      const Icon(
+                                        Icons.shopping_bag_outlined,
+                                        size: 16,
+                                        color: Color(0xFF5AD8A4),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        '$orderCount ${orderCount == 1 ? 'order' : 'orders'}',
+                                        style: const TextStyle(
+                                          color: Color(0xFF5AD8A4),
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
-                              ),
-                          ],
-                          
-                          // Stats
-                          if (widget.client.stats != null && orderCount > 0) ...[
-                            const SizedBox(height: 12),
-                            Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF5AD8A4).withValues(alpha: 0.1),
-                                borderRadius: BorderRadius.circular(10),
-                                border: Border.all(
-                                  color: const Color(0xFF5AD8A4).withValues(alpha: 0.2),
-                                ),
-                              ),
-                              child: Row(
-                                children: [
-                                  const Icon(
-                                    Icons.shopping_bag_outlined,
-                                    size: 16,
-                                    color: Color(0xFF5AD8A4),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    '$orderCount ${orderCount == 1 ? 'order' : 'orders'}',
-                                    style: const TextStyle(
-                                      color: Color(0xFF5AD8A4),
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
+                              ],
+                            ],
+                          ),
                         ],
                       ),
                     ),
