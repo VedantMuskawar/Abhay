@@ -1,7 +1,7 @@
 import {onDocumentUpdated} from 'firebase-functions/v2/firestore';
 import {getFirestore} from 'firebase-admin/firestore';
 import * as admin from 'firebase-admin';
-import {PENDING_ORDERS_COLLECTION} from '../shared/constants';
+import {PENDING_ORDERS_COLLECTION, TRANSACTIONS_COLLECTION} from '../shared/constants';
 
 const db = getFirestore();
 const SCHEDULED_TRIPS_COLLECTION = 'SCHEDULE_TRIPS';
@@ -186,12 +186,19 @@ export const onTripStatusUpdated = onDocumentUpdated(
         await _revertDeliveryMemo(tripId);
       }
 
-      // If status is returned, let onTripReturnedCreateDM handle creating a new DM
-      // Don't update existing DM - we want a fresh DM document for returns
-      // Note: onTripReturnedCreateDM will create a new DM if one doesn't exist
+      // If status is returned, let onTripReturnedCreateDM handle updating the existing DM
+      // Note: onTripReturnedCreateDM will update the DM document with return details
       if (beforeStatus === 'returned' && afterStatus !== 'returned') {
         // If status changed FROM returned to something else, revert return fields in DELIVERY_MEMO
         await _revertDeliveryMemoReturn(tripId);
+      }
+
+      // If status changed FROM dispatched to something else (e.g., scheduled), cancel credit transaction
+      if (beforeStatus === 'dispatched' && afterStatus !== 'dispatched') {
+        const creditTransactionId = after.creditTransactionId as string | undefined;
+        if (creditTransactionId) {
+          await _cancelCreditTransaction(tripId, creditTransactionId);
+        }
       }
     } catch (error) {
       console.error('[Trip Status Update] Error updating order', {
@@ -348,6 +355,58 @@ async function _revertDeliveryMemoReturn(tripId: string): Promise<void> {
       error,
     });
     // Don't throw - delivery memo update failure shouldn't block trip status update
+  }
+}
+
+/**
+ * Cancel credit transaction when trip is reverted from dispatched to scheduled
+ */
+async function _cancelCreditTransaction(
+  tripId: string,
+  creditTransactionId: string,
+): Promise<void> {
+  try {
+    const creditTxnRef = db.collection(TRANSACTIONS_COLLECTION).doc(creditTransactionId);
+    const creditTxnDoc = await creditTxnRef.get();
+    
+    if (!creditTxnDoc.exists) {
+      console.log('[Trip Status Update] Credit transaction not found', {
+        tripId,
+        transactionId: creditTransactionId,
+      });
+      return;
+    }
+
+    const creditTxnData = creditTxnDoc.data();
+    const currentStatus = creditTxnData?.status as string;
+    
+    // Only cancel if not already cancelled
+    if (currentStatus !== 'cancelled') {
+      await creditTxnRef.update({
+        status: 'cancelled',
+        cancelledAt: admin.firestore.FieldValue.serverTimestamp(),
+        cancelledBy: 'system',
+        cancellationReason: 'Trip dispatch reverted',
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      
+      console.log('[Trip Status Update] Credit transaction cancelled', {
+        tripId,
+        transactionId: creditTransactionId,
+      });
+    } else {
+      console.log('[Trip Status Update] Credit transaction already cancelled', {
+        tripId,
+        transactionId: creditTransactionId,
+      });
+    }
+  } catch (error) {
+    console.error('[Trip Status Update] Error cancelling credit transaction', {
+      tripId,
+      creditTransactionId,
+      error,
+    });
+    // Don't throw - transaction cancellation failure shouldn't block trip status update
   }
 }
 

@@ -178,11 +178,39 @@ exports.onOrderDeleted = functions.firestore
                 orderId,
                 transactionCount: transactionsSnapshot.size,
             });
+            // Check if trips exist with active status (scheduled, dispatched, delivered, or returned)
+            // If trips exist, preserve advance payment transactions
+            let shouldPreserveAdvance = false;
+            if (tripsCount > 0 && tripsSnapshot) {
+                const activeStatuses = ['scheduled', 'dispatched', 'delivered', 'returned'];
+                const hasActiveTrip = tripsSnapshot.docs.some((tripDoc) => {
+                    const tripData = tripDoc.data();
+                    const tripStatus = tripData.tripStatus || '';
+                    return activeStatuses.includes(tripStatus.toLowerCase());
+                });
+                if (hasActiveTrip) {
+                    shouldPreserveAdvance = true;
+                    console.log('[Order Deletion] Active trips exist - preserving advance payment transactions', {
+                        orderId,
+                        tripsCount,
+                    });
+                }
+            }
             // Delete all associated transactions with retry logic
             // This will trigger onTransactionDeleted which will properly revert ledger and analytics
             const deletionPromises = transactionsSnapshot.docs.map(async (txDoc) => {
                 const txId = txDoc.id;
                 const txData = txDoc.data();
+                const txType = txData.type;
+                // Preserve advance payment transactions if trips exist
+                if (shouldPreserveAdvance && txType === 'advance') {
+                    console.log('[Order Deletion] Preserving advance payment transaction', {
+                        orderId,
+                        transactionId: txId,
+                        reason: 'Active trips exist',
+                    });
+                    return; // Skip deletion
+                }
                 const currentStatus = txData.status;
                 // Retry deletion up to 3 times
                 let retries = 0;
@@ -276,8 +304,53 @@ exports.onOrderDeleted = functions.firestore
     });
 });
 /**
+ * Helper function to generate order number
+ * Format: ORD-{YYYY}-{NNN} (e.g., ORD-2024-001)
+ */
+async function generateOrderNumber(organizationId) {
+    const year = new Date().getFullYear();
+    const prefix = `ORD-${year}-`;
+    try {
+        // Query for orders with orderNumber starting with prefix
+        // Note: This query requires a composite index on (organizationId, orderNumber)
+        // If index doesn't exist, we'll use a simpler approach
+        const ordersSnapshot = await db
+            .collection(constants_1.PENDING_ORDERS_COLLECTION)
+            .where('organizationId', '==', organizationId)
+            .where('orderNumber', '>=', prefix)
+            .where('orderNumber', '<', `${prefix}Z`)
+            .orderBy('orderNumber', 'desc')
+            .limit(1)
+            .get();
+        let nextNumber = 1;
+        if (!ordersSnapshot.empty) {
+            const lastOrder = ordersSnapshot.docs[0];
+            const lastOrderNumber = lastOrder.data().orderNumber;
+            if (lastOrderNumber && lastOrderNumber.startsWith(prefix)) {
+                const parts = lastOrderNumber.split('-');
+                if (parts.length === 3 && parts[2]) {
+                    const lastSequence = parseInt(parts[2], 10);
+                    if (!isNaN(lastSequence) && lastSequence > 0) {
+                        nextNumber = lastSequence + 1;
+                    }
+                }
+            }
+        }
+        return `${prefix}${String(nextNumber).padStart(3, '0')}`;
+    }
+    catch (error) {
+        // If query fails (e.g., missing index), use timestamp-based fallback
+        if (error.code === 'failed-precondition') {
+            console.warn('[Order Number] Index missing, using timestamp-based fallback', { organizationId });
+            const timestamp = Date.now();
+            return `${prefix}${String(timestamp % 1000).padStart(3, '0')}`;
+        }
+        throw error;
+    }
+}
+/**
  * Cloud Function: Triggered when an order is created
- * Creates advance transaction if advance payment was provided
+ * Generates order number and creates advance transaction if advance payment was provided
  */
 exports.onPendingOrderCreated = functions.firestore
     .document(`${constants_1.PENDING_ORDERS_COLLECTION}/{orderId}`)
@@ -285,17 +358,42 @@ exports.onPendingOrderCreated = functions.firestore
     var _a;
     const orderId = context.params.orderId;
     const orderData = snapshot.data();
+    const organizationId = orderData.organizationId;
+    // Generate order number if not already set
+    let orderNumber = orderData.orderNumber;
+    if (!orderNumber || orderNumber.trim() === '') {
+        try {
+            orderNumber = await generateOrderNumber(organizationId);
+            await snapshot.ref.update({
+                orderNumber: orderNumber,
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+            console.log('[Order Created] Generated order number', {
+                orderId,
+                orderNumber,
+            });
+        }
+        catch (error) {
+            console.error('[Order Created] Failed to generate order number', {
+                orderId,
+                error,
+            });
+            // Continue execution even if order number generation fails
+        }
+    }
+    else {
+        orderNumber = orderData.orderNumber;
+    }
     const advanceAmount = orderData.advanceAmount || 0;
     // Only create transaction if advance amount > 0
     if (!advanceAmount || advanceAmount <= 0) {
         console.log('[Order Created] No advance payment, skipping transaction creation', {
             orderId,
+            orderNumber,
         });
         return;
     }
-    const organizationId = orderData.organizationId;
     const clientId = orderData.clientId;
-    const orderNumber = orderData.orderNumber;
     const totalAmount = (_a = orderData.pricing) === null || _a === void 0 ? void 0 : _a.totalAmount;
     const remainingAmount = orderData.remainingAmount ||
         (totalAmount ? totalAmount - advanceAmount : undefined);

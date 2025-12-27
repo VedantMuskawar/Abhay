@@ -44,4 +44,5 @@ __exportStar(require("./clients/client-analytics"), exports);
 __exportStar(require("./clients/client-whatsapp"), exports);
 __exportStar(require("./transactions"), exports);
 __exportStar(require("./orders"), exports);
+__exportStar(require("./cleanup"), exports);
 //# sourceMappingURL=index.js.map

@@ -59,25 +59,59 @@ const ORGANIZATIONS_COLLECTION = 'ORGANIZATIONS';
 exports.generateDM = (0, https_1.onCall)(async (request) => {
     var _a, _b;
     const { organizationId, tripId, scheduleTripId, tripData, generatedBy } = request.data;
+    console.log('[DM Generation] Request received', {
+        organizationId,
+        tripId,
+        scheduleTripId,
+        hasTripData: !!tripData,
+        generatedBy,
+        scheduledDateType: (tripData === null || tripData === void 0 ? void 0 : tripData.scheduledDate) ? typeof tripData.scheduledDate : 'missing',
+    });
     if (!organizationId || !tripId || !scheduleTripId || !tripData || !generatedBy) {
+        console.error('[DM Generation] Missing required parameters', {
+            hasOrganizationId: !!organizationId,
+            hasTripId: !!tripId,
+            hasScheduleTripId: !!scheduleTripId,
+            hasTripData: !!tripData,
+            hasGeneratedBy: !!generatedBy,
+        });
         throw new Error('Missing required parameters');
     }
     try {
         // Check if DM number already exists for this trip
         const tripDoc = await db.collection(SCHEDULE_TRIPS_COLLECTION).doc(tripId).get();
         if (tripDoc.exists) {
-            const tripData = tripDoc.data();
-            if (tripData === null || tripData === void 0 ? void 0 : tripData.dmNumber) {
+            const existingTripData = tripDoc.data();
+            if (existingTripData === null || existingTripData === void 0 ? void 0 : existingTripData.dmNumber) {
+                console.log('[DM Generation] DM already exists for trip', { tripId, dmNumber: existingTripData.dmNumber });
                 return {
                     success: false,
                     error: 'DM already exists for this trip',
-                    dmId: tripData.dmId || `DM/${(0, financial_year_1.getFinancialContext)(((_a = tripData.scheduledDate) === null || _a === void 0 ? void 0 : _a.toDate()) || new Date()).fyLabel}/${tripData.dmNumber}`,
-                    dmNumber: tripData.dmNumber,
+                    dmId: existingTripData.dmId || `DM/${(0, financial_year_1.getFinancialContext)(((_a = existingTripData.scheduledDate) === null || _a === void 0 ? void 0 : _a.toDate()) || new Date()).fyLabel}/${existingTripData.dmNumber}`,
+                    dmNumber: existingTripData.dmNumber,
                 };
             }
         }
         // Get financial year from scheduled date
-        const scheduledDate = tripData.scheduledDate.toDate();
+        // Handle serialized Timestamp format from client (map with _seconds and _nanoseconds)
+        let scheduledDate;
+        if (tripData.scheduledDate && typeof tripData.scheduledDate === 'object' && '_seconds' in tripData.scheduledDate) {
+            // Deserialize Timestamp from client
+            scheduledDate = new Date(tripData.scheduledDate._seconds * 1000);
+            console.log('[DM Generation] Deserialized scheduledDate from client format', { scheduledDate: scheduledDate.toISOString() });
+        }
+        else if (tripData.scheduledDate && typeof tripData.scheduledDate.toDate === 'function') {
+            // Firestore Timestamp object
+            scheduledDate = tripData.scheduledDate.toDate();
+            console.log('[DM Generation] Used Firestore Timestamp toDate()', { scheduledDate: scheduledDate.toISOString() });
+        }
+        else {
+            console.error('[DM Generation] Invalid scheduledDate format', {
+                scheduledDate: tripData.scheduledDate,
+                scheduledDateType: typeof tripData.scheduledDate,
+            });
+            throw new Error(`Invalid scheduledDate format: ${JSON.stringify(tripData.scheduledDate)}`);
+        }
         const fyContext = (0, financial_year_1.getFinancialContext)(scheduledDate);
         const financialYear = fyContext.fyLabel; // e.g., "FY2425"
         // Use transaction for atomicity
@@ -114,8 +148,43 @@ exports.generateDM = (0, https_1.onCall)(async (request) => {
             // Generate new DM number
             const newDMNumber = currentDMNumber + 1;
             const dmId = `DM/${financialYear}/${newDMNumber}`;
-            // DO NOT create DELIVERY_MEMOS document here
-            // DM document will be created only when trip is returned (via onTripReturnedCreateDM)
+            // Create DELIVERY_MEMOS document with all scheduled trip data
+            const deliveryMemoData = {
+                dmId,
+                dmNumber: newDMNumber,
+                tripId,
+                scheduleTripId: scheduleTripId,
+                financialYear,
+                organizationId,
+                orderId: tripData.orderId || '',
+                clientId: tripData.clientId || '',
+                clientName: tripData.clientName || '',
+                customerNumber: tripData.clientPhone || tripData.customerNumber || '',
+                scheduledDate: scheduledDate,
+                scheduledDay: tripData.scheduledDay || '',
+                vehicleId: tripData.vehicleId || '',
+                vehicleNumber: tripData.vehicleNumber || '',
+                slot: tripData.slot || 0,
+                slotName: tripData.slotName || '',
+                driverId: tripData.driverId || null,
+                driverName: tripData.driverName || null,
+                driverPhone: tripData.driverPhone || null,
+                deliveryZone: tripData.deliveryZone || {},
+                items: tripData.items || [],
+                pricing: tripData.pricing || {},
+                tripPricing: tripData.tripPricing || null,
+                priority: tripData.priority || 'normal',
+                paymentType: tripData.paymentType || '',
+                tripStatus: 'scheduled',
+                orderStatus: tripData.orderStatus || 'pending',
+                status: 'active', // DM status: active, cancelled, returned
+                generatedAt: new Date(),
+                generatedBy,
+                source: 'dm_generation',
+                updatedAt: new Date(),
+            };
+            const dmRef = db.collection(DELIVERY_MEMOS_COLLECTION).doc();
+            transaction.set(dmRef, deliveryMemoData);
             // Update SCHEDULE_TRIPS with dmNumber
             const tripRef = db.collection(SCHEDULE_TRIPS_COLLECTION).doc(tripId);
             transaction.update(tripRef, {
@@ -128,7 +197,7 @@ exports.generateDM = (0, https_1.onCall)(async (request) => {
                 currentDMNumber: newDMNumber,
                 updatedAt: new Date(),
             });
-            return { dmId, dmNumber: newDMNumber, financialYear, tripData };
+            return { dmId, dmNumber: newDMNumber, financialYear, tripData, dmDocumentId: dmRef.id };
         });
         // After DM is generated, create credit transaction if payment type requires it
         const paymentType = ((_b = tripData.paymentType) === null || _b === void 0 ? void 0 : _b.toLowerCase()) || '';
@@ -147,14 +216,13 @@ exports.generateDM = (0, https_1.onCall)(async (request) => {
                         amount: tripTotal,
                         status: 'completed',
                         orderId: tripData.orderId || '',
-                        description: `Credit - DM-${result.dmNumber}${paymentType === 'pay_later' ? ' (Pay Later)' : ' (Pay on Delivery)'}`,
+                        description: `Order Credit - DM-${result.dmNumber} (${paymentType === 'pay_later' ? 'Pay Later' : 'Pay on Delivery'})`,
                         metadata: {
                             tripId,
                             dmNumber: result.dmNumber,
                             paymentType,
-                            scheduledDate: tripData.scheduledDate,
+                            scheduledDate: scheduledDate, // Use the deserialized Date object
                             tripTotal,
-                            createdAt: admin.firestore.FieldValue.serverTimestamp(),
                         },
                         createdBy: generatedBy,
                         createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -201,7 +269,6 @@ exports.generateDM = (0, https_1.onCall)(async (request) => {
  * Called from Flutter when user clicks "Cancel DM"
  */
 exports.cancelDM = (0, https_1.onCall)(async (request) => {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s;
     const { tripId, dmId, cancelledBy, cancellationReason } = request.data;
     if (!tripId || !cancelledBy) {
         throw new Error('Missing required parameters: tripId and cancelledBy');
@@ -228,124 +295,27 @@ exports.cancelDM = (0, https_1.onCall)(async (request) => {
                 .get();
         }
         if (dmQuery.empty) {
-            // No DM doc yet (typical for dispatch DM); create a cancelled DM snapshot
-            const tripSnap = await db.collection(SCHEDULE_TRIPS_COLLECTION).doc(tripId).get();
-            if (!tripSnap.exists) {
-                throw new Error('Trip not found to create cancelled DM snapshot');
-            }
-            const tripData = tripSnap.data() || {};
-            const dmNumber = tripData.dmNumber;
-            if (!dmNumber) {
-                throw new Error('No dmNumber on trip to create cancelled DM snapshot');
-            }
-            const scheduledDate = ((_a = tripData.scheduledDate) === null || _a === void 0 ? void 0 : _a.toDate)
-                ? tripData.scheduledDate.toDate()
-                : new Date();
-            const financialYear = (0, financial_year_1.getFinancialContext)(scheduledDate).fyLabel;
-            const dmIdToUse = tripData.dmId || `DM/${financialYear}/${dmNumber}`;
-            // Build delivery memo snapshot from trip data
-            const deliveryMemoData = {
-                dmNumber,
-                dmId: dmIdToUse,
-                scheduleTripId: tripData.scheduleTripId || tripId,
-                tripId,
-                financialYear,
-                organizationId: tripData.organizationId || '',
-                orderId: tripData.orderId || '',
-                clientId: tripData.clientId || '',
-                clientName: tripData.clientName || '',
-                customerNumber: tripData.customerNumber || '',
-                scheduledDate: tripData.scheduledDate || admin.firestore.FieldValue.serverTimestamp(),
-                scheduledDay: tripData.scheduledDay || '',
-                vehicleId: tripData.vehicleId || '',
-                vehicleNumber: tripData.vehicleNumber || '',
-                slot: tripData.slot || 0,
-                slotName: tripData.slotName || '',
-                driverId: (_b = tripData.driverId) !== null && _b !== void 0 ? _b : null,
-                driverName: (_c = tripData.driverName) !== null && _c !== void 0 ? _c : null,
-                driverPhone: (_d = tripData.driverPhone) !== null && _d !== void 0 ? _d : null,
-                deliveryZone: tripData.deliveryZone || {},
-                items: tripData.items || [],
-                pricing: tripData.pricing || {},
-                tripPricing: tripData.tripPricing || null,
-                priority: tripData.priority || 'normal',
-                paymentType: tripData.paymentType || '',
-                orderStatus: tripData.orderStatus || 'pending',
-                tripStatus: tripData.tripStatus || 'pending',
-                status: 'cancelled',
-                initialReading: (_e = tripData.initialReading) !== null && _e !== void 0 ? _e : null,
-                finalReading: (_f = tripData.finalReading) !== null && _f !== void 0 ? _f : null,
-                distanceTravelled: (_g = tripData.distanceTravelled) !== null && _g !== void 0 ? _g : null,
-                deliveryPhotoUrl: (_h = tripData.deliveryPhotoUrl) !== null && _h !== void 0 ? _h : null,
-                dispatchedAt: (_j = tripData.dispatchedAt) !== null && _j !== void 0 ? _j : null,
-                dispatchedBy: (_k = tripData.dispatchedBy) !== null && _k !== void 0 ? _k : null,
-                dispatchedByRole: (_l = tripData.dispatchedByRole) !== null && _l !== void 0 ? _l : null,
-                deliveredAt: (_m = tripData.deliveredAt) !== null && _m !== void 0 ? _m : null,
-                deliveredBy: (_o = tripData.deliveredBy) !== null && _o !== void 0 ? _o : null,
-                deliveredByRole: (_p = tripData.deliveredByRole) !== null && _p !== void 0 ? _p : null,
-                returnedAt: (_q = tripData.returnedAt) !== null && _q !== void 0 ? _q : null,
-                returnedBy: (_r = tripData.returnedBy) !== null && _r !== void 0 ? _r : null,
-                returnedByRole: (_s = tripData.returnedByRole) !== null && _s !== void 0 ? _s : null,
-                paymentDetails: tripData.paymentDetails || [],
-                totalPaidOnReturn: tripData.totalPaidOnReturn || 0,
-                paymentStatus: tripData.paymentStatus || 'pending',
-                remainingAmount: tripData.remainingAmount || null,
-                generatedAt: new Date(),
-                createdBy: cancelledBy,
-                updatedAt: new Date(),
-                cancelledAt: new Date(),
-                cancelledBy,
-                cancellationReason: cancellationReason || 'Cancelled before dispatch',
-                source: 'cancel_dm',
-            };
-            await db.runTransaction(async (transaction) => {
-                const dmRef = db.collection(DELIVERY_MEMOS_COLLECTION).doc();
-                transaction.set(dmRef, deliveryMemoData);
-                // Remove dmNumber from SCHEDULE_TRIPS
-                const tripRef = db.collection(SCHEDULE_TRIPS_COLLECTION).doc(tripId);
-                transaction.update(tripRef, {
-                    dmNumber: null,
-                    dmId: null,
-                    updatedAt: new Date(),
-                });
-            });
+            // DM document should always exist if DM was generated
+            // If not found, it means DM was never generated or was already deleted
+            throw new Error('DM document not found. DM must be generated before it can be cancelled.');
         }
-        else {
-            const dmDoc = dmQuery.docs[0];
-            const dmData = dmDoc.data();
-            // Update items to mark as CANCELLED
-            const items = dmData.items || [];
-            const updatedItems = items.map((item) => {
-                if (typeof item === 'object' && item !== null) {
-                    return Object.assign(Object.assign({}, item), { productName: 'CANCELLED', fixedQuantityPerTrip: 0 });
-                }
-                return item;
-            });
-            // Use transaction for atomicity
-            await db.runTransaction(async (transaction) => {
-                // Update DELIVERY_MEMOS
-                const dmRef = dmDoc.ref;
-                const updateData = {
-                    status: 'cancelled',
-                    clientName: 'CANCELLED',
-                    items: updatedItems,
-                    cancelledAt: new Date(),
-                    cancelledBy: cancelledBy,
-                    updatedAt: new Date(),
-                };
-                if (cancellationReason) {
-                    updateData.cancellationReason = cancellationReason;
-                }
-                transaction.update(dmRef, updateData);
-                // Remove dmNumber from SCHEDULE_TRIPS
-                const tripRef = db.collection(SCHEDULE_TRIPS_COLLECTION).doc(tripId);
-                transaction.update(tripRef, {
-                    dmNumber: null,
-                    dmId: null,
-                    updatedAt: new Date(),
-                });
-            });
-        }
+        // Update existing DM document status to 'cancelled'
+        const dmDoc = dmQuery.docs[0];
+        // Update DM document status to 'cancelled'
+        await dmDoc.ref.update({
+            status: 'cancelled',
+            cancelledAt: admin.firestore.FieldValue.serverTimestamp(),
+            cancelledBy,
+            cancellationReason: cancellationReason || 'DM cancelled',
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        // Remove dmNumber from SCHEDULE_TRIPS
+        const tripRef = db.collection(SCHEDULE_TRIPS_COLLECTION).doc(tripId);
+        await tripRef.update({
+            dmNumber: null,
+            dmId: null,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
         return {
             success: true,
             message: 'DM cancelled successfully',
